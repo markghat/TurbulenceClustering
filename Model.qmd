@@ -56,6 +56,11 @@ plot(adjusted_lm_moment1)
 
 ##TODO: Find which interaction effects are significant
 ```
+#remove insignificant interaction effects
+```{r}
+adjusted_lm_moment1 <- lm(log(R_moment_1) ~ poly(St, 2) * Fr + Re:Fr, data = data_train) #Make St quadratic
+summary(adjusted_lm_moment1)
+```
 
 
 ```{r}
