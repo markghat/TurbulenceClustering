@@ -3,6 +3,7 @@ title: "Model"
 format: pdf
 editor: visual
 ---
+
 ```{r}
 library(tidyverse)
 ```
@@ -13,6 +14,7 @@ data_test <- read.csv("data-test.csv")
 ```
 
 ##Data Cleaning
+
 ```{r}
 # Change Fr and Re to categorical
 data_train$Fr <- as.factor(data_train$Fr)
@@ -21,6 +23,7 @@ data_train$Re <- as.factor(data_train$Re)
 ```
 
 ##Linear Model
+
 ```{r}
 #lm1 <- lm(cbind(R_moment_1, R_moment_2, R_moment_3, R_moment_4) ~ St + Re + Fr, data = data_train)
 lm_moment1 <- lm(R_moment_1 ~ St + Re + Fr, data = data_train)
@@ -34,11 +37,26 @@ summary(lm_moment3)
 summary(lm_moment4)
 
 ```
+
 ```{r}
 plot(lm_moment1)
+
 ```
 ```{r}
+adjusted_lm_moment1 <- lm(R_moment_1 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
+summary(adjusted_lm_moment1)
+plot(adjusted_lm_moment1)
+```
+
+```{r}
 plot(lm_moment2)
+```
+
+
+```{r}
+adjusted_lm_moment2 <- lm(R_moment_2 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
+summary(adjusted_lm_moment2)
+plot(adjusted_lm_moment2)
 ```
 
 ```{r}
@@ -49,22 +67,13 @@ plot(lm_moment3)
 plot(lm_moment4)
 ```
 
-```{r}
-data_train <- data_train |>
-  mutate(
-    log_m2 = log(R_moment_2),
-    log_m3 = log(R_moment_3),
-    log_m4 = log(R_moment_4)
-  )
-```
-
 
 ```{r}
 lm2 <- lm(R_moment_2 ~ poly(St, 2) + poly(Re, 2) + Fr, data = data_train)
 summary(lm2)
 ```
+
 ```{r}
 lm3 <- lm(R_moment_2 ~ (St + Re + Fr)^2, data = data_train)
 summary(lm3)
 ```
-
