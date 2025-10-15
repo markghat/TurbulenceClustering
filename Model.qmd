@@ -62,18 +62,19 @@ plot(adjusted_lm_moment2)
 ```{r}
 plot(lm_moment3)
 ```
+```{r}
+adjusted_lm_moment3 <- lm(R_moment_3 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
+summary(adjusted_lm_moment3)
+plot(adjusted_lm_moment3)
+```
 
 ```{r}
 plot(lm_moment4)
 ```
-
-
 ```{r}
-lm2 <- lm(R_moment_2 ~ poly(St, 2) + poly(Re, 2) + Fr, data = data_train)
-summary(lm2)
+adjusted_lm_moment4 <- lm(R_moment_4 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
+summary(adjusted_lm_moment4)
+plot(adjusted_lm_moment4)
 ```
 
-```{r}
-lm3 <- lm(R_moment_2 ~ (St + Re + Fr)^2, data = data_train)
-summary(lm3)
-```
+
