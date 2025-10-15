@@ -43,10 +43,20 @@ plot(lm_moment1)
 
 ```
 ```{r}
-adjusted_lm_moment1 <- lm(R_moment_1 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
+adjusted_lm_moment1 <- lm(log(R_moment_1) ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
 summary(adjusted_lm_moment1)
+par(mfrow = c(2,2))
 plot(adjusted_lm_moment1)
+
+#note: log response
+#The Q–Q plot for the adjusted model (with quadratic St and interactions) indicates that while the central residuals are approximately normal, several extreme points deviate substantially from the expected line. This suggests the presence of heavy tails and influential cases, likely arising from extreme parameter settings. A log transformation of the response or a robust regression approach can mitigate these effects and improve model normality.
+
+#note: ploy term
+#Initial diagnostic plots revealed a systematic pattern in the residuals, suggesting that the effect of the Stokes number (St) on the mean cluster volume was nonlinear. To capture this curvature, we included a second-order polynomial term, poly(St, 2), which adds both linear and quadratic components of St to the model. This adjustment improves model flexibility while maintaining interpretability.
+
+##TODO: Find which interaction effects are significant
 ```
+
 
 ```{r}
 plot(lm_moment2)
