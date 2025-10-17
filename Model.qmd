@@ -22,10 +22,9 @@ data_train$Re <- as.factor(data_train$Re)
 
 ```
 
-##Linear Model
+## Initial linear models
 
 ```{r}
-#lm1 <- lm(cbind(R_moment_1, R_moment_2, R_moment_3, R_moment_4) ~ St + Re + Fr, data = data_train)
 lm_moment1 <- lm(R_moment_1 ~ St + Re + Fr, data = data_train)
 lm_moment2 <- lm(R_moment_2 ~ St + Re + Fr, data = data_train)
 lm_moment3 <- lm(R_moment_3 ~ St + Re + Fr, data = data_train)
@@ -37,12 +36,12 @@ summary(lm_moment3)
 summary(lm_moment4)
 
 ```
-
+# Plots for Linear Model 1 (First Moment)
 ```{r}
+par(mfrow = c(2,2))
 plot(lm_moment1)
-
 ```
-
+# Adjusted Linear Model 1 
 ```{r}
 adjusted_lm_moment1 <- lm(log(R_moment_1) ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
 summary(adjusted_lm_moment1)
@@ -63,8 +62,10 @@ plot(adjusted_lm_moment1)
 ```{r}
 adjusted_lm_moment1 <- lm(log(R_moment_1) ~ poly(St, 2) * Fr + Re:Fr, data = data_train) #Make St quadratic
 summary(adjusted_lm_moment1)
+par(mfrow = c(2,2))
 plot(adjusted_lm_moment1)
 ```
+
 # remove 2nd level of polynomial interaction
 ```{r}
 St_poly <- poly(data_train$St, 2)
@@ -73,9 +74,17 @@ data_train$St2 <- St_poly[,2]
 
 simple_adj_lm_moment1 <- lm(log(R_moment_1) ~ St1 + St2 + St1:Fr + Re * Fr, data = data_train)
 summary(simple_adj_lm_moment1)
+par(mfrow = c(2,2))
 plot(simple_adj_lm_moment1)
 
 AIC(simple_adj_lm_moment1, adjusted_lm_moment1); BIC(simple_adj_lm_moment1, adjusted_lm_moment1)
+```
+# GLM
+```{r}
+glm_moment1 <-glm(R_moment_1 ~ St1 + St2 + Re * Fr, data = data_train, family = Gamma(link = "log"))
+summary(glm_moment1)
+par(mfrow = c(2,2))
+plot(glm_moment1)
 ```
 
 
