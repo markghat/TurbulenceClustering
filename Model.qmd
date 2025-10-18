@@ -81,13 +81,21 @@ plot(simple_adj_lm_moment1)
 AIC(simple_adj_lm_moment1, adjusted_lm_moment1); BIC(simple_adj_lm_moment1, adjusted_lm_moment1)
 ```
 # GLM
+#!!! NEED TO USE ANOVA TO COMPARE VARIANCS of St Polynomials
 ```{r}
-glm_moment1 <-glm(R_moment_1 ~ poly(St, 2) * Fr + Re:Fr, data = data_train, family = Gamma(link = "log"))
+glm_moment1 <-glm(R_moment_1 ~ St*Fr + Re, data = data_train, family = Gamma(link = "log"))
 summary(glm_moment1)
 par(mfrow = c(2,2))
 plot(glm_moment1)
 ```
+```{r}
+library(boot)
 
+# 10-fold CV for your Gamma model
+cv_results <- cv.glm(data_train, glm_moment1, K = 10)
+cv_results$delta
+```
+Very small CV error. The model generalizes well within the sample (i.e., not just memorizing).
 # LM 2 Plot
 ```{r}
 par(mfrow = c(2,2))
@@ -103,15 +111,8 @@ summary(glm_moment2)
 par(mfrow = c(2,2))
 plot(glm_moment2)
 ```
-# Spline testing
-```{r}
-library(splines)
-glm_moment2_spline <- glm(R_moment_2 ~ ns(St, 3) + Re * Fr,
-                          data = data_train,
-                          family = Gamma(link = "log"))
-par(mfrow = c(2,2))
-plot(glm_moment2_spline)
-```
+
+
 ```{r}
 lm_log <- lm(log(R_moment_2) ~ St1 + St2 + Re * Fr, data = data_train)
 summary(lm_log)
