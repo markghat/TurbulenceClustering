@@ -96,6 +96,7 @@ cv_results <- cv.glm(data_train, glm_moment1, K = 10)
 cv_results$delta
 ```
 Very small CV error. The model generalizes well within the sample (i.e., not just memorizing).
+
 # LM 2 Plot
 ```{r}
 par(mfrow = c(2,2))
