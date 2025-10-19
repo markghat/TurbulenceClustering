@@ -83,21 +83,27 @@ cv_results$delta
 ```
 Very small CV error. The model generalizes well within the sample (i.e., not just memorizing).
 
+#Calculate Variance (Central Statistic 2)
+```{r}
+data_train$Var_empirical <- data_train$R_moment_2 - data_train$R_moment_1^2
+```
+
 # Simple LM 2 Plot
 ```{r}
 par(mfrow = c(2,2))
 plot(lm_moment2)
 ```
 #ANOVA to determine order of polynomial
+#??Should I include the interaction effect even though it's less interpretable?
 ```{r}
-adjusted_lm_moment2 <- lm(log(R_moment_2)~ poly(St,2)+ Re + Fr, data = data_train)
-lm_linear <- lm(log(R_moment_2) ~ St + Re + Fr, data = data_train)
+adjusted_lm_moment2 <- lm(log(Var_empirical)~ poly(St,2)+ Re*Fr, data = data_train)
+lm_linear <- lm(log(Var_empirical) ~ St + Re + Fr, data = data_train)
 anova(lm_linear, adjusted_lm_moment2)
 ```
 
 #Adjusted LM2
+#should I add a spline to improve the Q-Q plot? (only 4 outliers)
 ```{r}
-#glm_moment2 <-glm(R_moment_2 ~ poly(St,1) + Re + Fr, data = data_train, family = Gamma(link = "log"))
 summary(adjusted_lm_moment2)
 par(mfrow = c(2,2))
 plot(adjusted_lm_moment2)
@@ -114,7 +120,7 @@ for(k in 1:K){
   train_idx <- folds != k
   test_idx  <- folds == k
 
-  fit <- lm(log(R_moment_2) ~ poly(St, 2) + Re + Fr, data=data_train[train_idx,])
+  fit <- lm(log(Var_empirical) ~ poly(St, 2) + Re *Fr, data=data_train[train_idx,])
   preds_log <- predict(fit, newdata=data_train[test_idx,])
   obs_log <- log(data_train$R_moment_2[test_idx])
   rmse[k] <- sqrt(mean((obs_log - preds_log)^2))
@@ -124,6 +130,49 @@ mean(rmse)
 Very close to model's in-sample RSE = 1.73. This means there’s little to no overfitting — out-of-sample performance matches training performance very closely.
 
 
+#Variance Model w/ Spline
+```{r}
+# Load required package
+library(mgcv)
+
+# Fit a Gamma GAM with log link
+gam_var <- gam(
+  Var_empirical ~ s(St, k = 4) + Re * Fr,
+  data = data_train,
+  family = Gamma(link = "log")
+)
+
+# View model summary
+summary(gam_var)
+par(mfrow = c(2, 2))
+gam.check(gam_var)
+plot(gam_var, pages = 1, shade = TRUE)
+```
+#CV w/ Spline
+```{r}
+set.seed(123)
+K <- 10
+folds <- sample(rep(1:K, length.out = nrow(data_train)))
+rmse <- numeric(K)
+
+for (k in 1:K) {
+  train_idx <- folds != k
+  test_idx  <- folds == k
+  
+  fit <- gam(
+    Var_empirical ~ s(St, k = 4) + Re * Fr,
+    data = data_train[train_idx, ],
+    family = Gamma(link = "log")
+  )
+  
+  preds_log <- predict(fit, newdata = data_train[test_idx, ], type = "link")
+  obs_log <- log(data_train$Var_empirical[test_idx])
+  
+  rmse[k] <- sqrt(mean((obs_log - preds_log)^2))
+}
+
+mean(rmse)
+```
 
 
 #Ty
