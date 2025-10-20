@@ -37,12 +37,16 @@ summary(lm_moment3)
 summary(lm_moment4)
 
 ```
+
 # Plots for Linear Model 1 (First Moment)
+
 ```{r}
 par(mfrow = c(2,2))
 plot(lm_moment1)
 ```
-# Adjusted Linear Model 1 
+
+# Adjusted Linear Model 1
+
 ```{r}
 adjusted_lm_moment1 <- lm(log(R_moment_1) ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
 summary(adjusted_lm_moment1)
@@ -68,41 +72,48 @@ plot(adjusted_lm_moment1)
 ```
 
 # GLM
+
 ```{r}
 glm_moment1 <-glm(R_moment_1 ~ St*Fr + Re, data = data_train, family = Gamma(link = "log"))
 summary(glm_moment1)
 par(mfrow = c(2,2))
 plot(glm_moment1)
 ```
+
 #Moment 1 CV
+
 ```{r}
 library(boot)
 
 cv_results <- cv.glm(data_train, glm_moment1, K = 10)
 cv_results$delta
 ```
+
 Very small CV error. The model generalizes well within the sample (i.e., not just memorizing).
 
 #Calculate Variance (Central Statistic 2)
+
 ```{r}
 data_train$Var_empirical <- data_train$R_moment_2 - data_train$R_moment_1^2
 ```
 
 # Simple LM 2 Plot
+
 ```{r}
 par(mfrow = c(2,2))
 plot(lm_moment2)
 ```
-#ANOVA to determine order of polynomial
-#??Should I include the interaction effect even though it's less interpretable?
+
+#ANOVA to determine order of polynomial #??Should I include the interaction effect even though it's less interpretable?
+
 ```{r}
 adjusted_lm_moment2 <- lm(log(Var_empirical)~ poly(St,2)+ Re*Fr, data = data_train)
 lm_linear <- lm(log(Var_empirical) ~ St + Re + Fr, data = data_train)
 anova(lm_linear, adjusted_lm_moment2)
 ```
 
-#Adjusted LM2
-#should I add a spline to improve the Q-Q plot? (only 4 outliers)
+#Adjusted LM2 #should I add a spline to improve the Q-Q plot? (only 4 outliers)
+
 ```{r}
 summary(adjusted_lm_moment2)
 par(mfrow = c(2,2))
@@ -110,6 +121,7 @@ plot(adjusted_lm_moment2)
 ```
 
 #Moment 2 CV
+
 ```{r}
 set.seed(123)
 K <- 10
@@ -127,10 +139,11 @@ for(k in 1:K){
 }
 mean(rmse)
 ```
+
 Very close to model's in-sample RSE = 1.73. This means there’s little to no overfitting — out-of-sample performance matches training performance very closely.
 
-
 #Variance Model w/ Spline
+
 ```{r}
 # Load required package
 library(mgcv)
@@ -148,7 +161,9 @@ par(mfrow = c(2, 2))
 gam.check(gam_var)
 plot(gam_var, pages = 1, shade = TRUE)
 ```
+
 #CV w/ Spline
+
 ```{r}
 set.seed(123)
 K <- 10
@@ -174,19 +189,91 @@ for (k in 1:K) {
 mean(rmse)
 ```
 
-
 #Ty
+
 ```{r}
 plot(lm_moment3)
+
+
+```
+
+```         
 ```
 
 ```{r}
-adjusted_lm_moment3 <- lm(R_moment_3 ~ poly(St, 2) * Re * Fr, data = data_train) #Make St quadratic
-summary(adjusted_lm_moment3)
-plot(adjusted_lm_moment3)
+
+# ---- MODEL 3: 5-fold CV for Skewness (Central Moment 3) ----
+
+library(dplyr)
+library(mgcv)
+library(caret)
+library(splines)
+set.seed(123)
+
+# 1️⃣ Compute central moments first (if not already computed)
+data_train <- data_train %>%
+  mutate(
+    central_m2 = R_moment_2 - R_moment_1^2,
+    central_m3 = R_moment_3 - 3 * R_moment_2 * R_moment_1 + 2 * R_moment_1^3
+  )
+
+# 2️⃣ Prepare training data
+data_train <- data_train %>% 
+  mutate(
+    skew = central_m3 / (central_m2^(3/2)),  # standardized skew
+    # If you prefer raw skewness instead, use: skew = central_m3
+    St = as.numeric(St),
+    Re = as.numeric(Re),
+    Fr = as.numeric(Fr)
+  ) %>%
+  filter(!is.na(skew), is.finite(skew))  # remove NaN or Inf
+
+# 3️⃣ Build folds
+folds <- tryCatch(
+  createFolds(data_train$skew, k = 5, list = TRUE),
+  error = function(e) {
+    split(sample(1:nrow(data_train)), rep(1:5, length.out = nrow(data_train)))
+  }
+)
+
+# 4️⃣ Cross-validation helper
+cv_error <- function(fit_func) {
+  sapply(1:5, function(i) {
+    train_data <- data_train[-folds[[i]], ]
+    test_data  <- data_train[folds[[i]], ]
+    model <- tryCatch(fit_func(train_data), error = function(e) NULL)
+    if (is.null(model)) return(Inf)
+    preds <- predict(model, newdata = test_data, type = "response")
+    mean((test_data$skew - preds)^2, na.rm = TRUE)
+  }) |> mean()
+}
+
+# 5️⃣ Candidate models
+lm_raw <- function(d) lm(skew ~ poly(St,2) + Re * Fr, data = d)
+
+lm_spline <- function(d) lm(skew ~ bs(St, df = 4) + Re * Fr, data = d)
+
+gam_gamma <- function(d) gam(skew ~ s(St, k = 4, bs = "cr") + Re * Fr,
+                             data = d, family = gaussian())
+
+gam_ti <- function(d) gam(skew ~ te(St, Re, Fr, k = c(3,3,3)),
+                          data = d, family = gaussian())
+
+# 6️⃣ Run everything
+results <- data.frame(
+  Model = c("lm_raw", "lm_spline", "gam_gamma", "gam_ti"),
+  MSE = c(cv_error(lm_raw), cv_error(lm_spline), cv_error(gam_gamma), cv_error(gam_ti))
+)
+
+print(results)
+
+```
+
+```         
 ```
 
 #Andy
+
 ```{r}
 plot(lm_moment4)
 ```
