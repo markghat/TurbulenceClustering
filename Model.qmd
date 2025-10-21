@@ -202,70 +202,84 @@ plot(lm_moment3)
 
 ```{r}
 
-# ---- MODEL 3: 5-fold CV for Skewness (Central Moment 3) ----
 
-library(dplyr)
-library(mgcv)
-library(caret)
-library(splines)
-set.seed(123)
-
-# 1️⃣ Compute central moments first (if not already computed)
 data_train <- data_train %>%
   mutate(
-    central_m2 = R_moment_2 - R_moment_1^2,
-    central_m3 = R_moment_3 - 3 * R_moment_2 * R_moment_1 + 2 * R_moment_1^3
-  )
-
-# 2️⃣ Prepare training data
-data_train <- data_train %>% 
-  mutate(
-    skew = central_m3 / (central_m2^(3/2)),  # standardized skew
-    # If you prefer raw skewness instead, use: skew = central_m3
-    St = as.numeric(St),
-    Re = as.numeric(Re),
-    Fr = as.numeric(Fr)
+    Central_m2 = R_moment_2 - R_moment_1^2,
+    Central_m3 = R_moment_3 - 3 * R_moment_2 * R_moment_1 + 2 * R_moment_1^3,
+    Skew_Standardized = Central_m3 / (Central_m2^(3/2)),
   ) %>%
-  filter(!is.na(skew), is.finite(skew))  # remove NaN or Inf
+  filter(!is.na(Skew_Standardized), is.finite(Skew_Standardized))
 
-# 3️⃣ Build folds
-folds <- tryCatch(
-  createFolds(data_train$skew, k = 5, list = TRUE),
-  error = function(e) {
-    split(sample(1:nrow(data_train)), rep(1:5, length.out = nrow(data_train)))
-  }
-)
+lm_poly1 <- lm(Skew_Standardized ~ St + Re * Fr, data = data_train)
+lm_poly2 <- lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
+lm_poly3 <- lm(Skew_Standardized ~ poly(St, 3) + Re * Fr, data = data_train)
+lm_poly4 <- lm(Skew_Standardized ~ poly(St, 4) + Re * Fr, data = data_train)
 
-# 4️⃣ Cross-validation helper
+
+anova(lm_poly1, lm_poly2, lm_poly3, lm_poly4)
+
+
+```
+
+```{r}
+# MODEL 3: skewness
+
+library(dplyr)
+library(caret)
+library(splines)
+library(ggplot2)
+set.seed(123)
+
+
+# ---- 5-Fold CV ----
+folds <- createFolds(data_train$Skew_Standardized, k = 5)
+
 cv_error <- function(fit_func) {
-  sapply(1:5, function(i) {
-    train_data <- data_train[-folds[[i]], ]
-    test_data  <- data_train[folds[[i]], ]
-    model <- tryCatch(fit_func(train_data), error = function(e) NULL)
-    if (is.null(model)) return(Inf)
-    preds <- predict(model, newdata = test_data, type = "response")
-    mean((test_data$skew - preds)^2, na.rm = TRUE)
-  }) |> mean()
+  mean(sapply(folds, function(idx) {
+    train <- data_train[-idx, ]
+    test  <- data_train[idx, ]
+    model <- fit_func(train)
+    preds <- predict(model, newdata = test)
+    mean((test$Skew_Standardized - preds)^2, na.rm = TRUE)
+  }))
 }
 
-# 5️⃣ Candidate models
-lm_raw <- function(d) lm(skew ~ poly(St,2) + Re * Fr, data = d)
+# 
 
-lm_spline <- function(d) lm(skew ~ bs(St, df = 4) + Re * Fr, data = d)
 
-gam_gamma <- function(d) gam(skew ~ s(St, k = 4, bs = "cr") + Re * Fr,
-                             data = d, family = gaussian())
+#1. why did we standardize skew ? 
+#2. why poly of that order? 
+  # run ANOVA
+#3. why a spline of df 4
+  # anova equivalent for splines
 
-gam_ti <- function(d) gam(skew ~ te(St, Re, Fr, k = c(3,3,3)),
-                          data = d, family = gaussian())
+lm_raw    <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = d)
+lm_spline <- function(d) lm(Skew_Standardized ~ bs(St, df = 4) + Re * Fr, data = d)
 
-# 6️⃣ Run everything
-results <- data.frame(
-  Model = c("lm_raw", "lm_spline", "gam_gamma", "gam_ti"),
-  MSE = c(cv_error(lm_raw), cv_error(lm_spline), cv_error(gam_gamma), cv_error(gam_ti))
+# Run Cv
+results <- tibble(
+  Model = c("lm_raw", "lm_spline"),
+  MSE = c(cv_error(lm_raw), cv_error(lm_spline))
 )
 
 print(results)
+
+# Best model
+best_name <- results$Model[which.min(results$MSE)]
+cat("Best model:", best_name, "\n")
+
+best_model <- switch(best_name,
+  lm_raw = lm_raw(data_train),
+  lm_spline = lm_spline(data_train)
+)
+
+summary(best_model)
+
+# Plots
+par(mfrow = c(2, 2))
+plot(best_model)   # Residuals, Q-Q, leverage, etc.
+
 
 ```
 
