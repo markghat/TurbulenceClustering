@@ -104,11 +104,11 @@ par(mfrow = c(2,2))
 plot(lm_moment2)
 ```
 
-#ANOVA to determine order of polynomial #??Should I include the interaction effect even though it's less interpretable?
+#ANOVA to determine order of polynomial #??Should I include the interaction effect even though it's less interpretable? Should I do CV to determine?
 
 ```{r}
 adjusted_lm_moment2 <- lm(log(Var_empirical)~ poly(St,2)+ Re*Fr, data = data_train)
-lm_linear <- lm(log(Var_empirical) ~ St + Re + Fr, data = data_train)
+lm_linear <- lm(log(Var_empirical) ~ St + Re*Fr, data = data_train)
 anova(lm_linear, adjusted_lm_moment2)
 ```
 
@@ -189,20 +189,13 @@ for (k in 1:K) {
 mean(rmse)
 ```
 
-#Ty
+#Moment 3
 
 ```{r}
 plot(lm_moment3)
-
-
-```
-
-```         
 ```
 
 ```{r}
-
-
 data_train <- data_train %>%
   mutate(
     Central_m2 = R_moment_2 - R_moment_1^2,
