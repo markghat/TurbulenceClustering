@@ -290,3 +290,66 @@ adjusted_lm_moment4 <- lm(R_moment_4 ~ poly(St, 2) * Re * Fr, data = data_train)
 summary(adjusted_lm_moment4)
 plot(adjusted_lm_moment4)
 ```
+
+```{r}
+# add columns to training data
+data_train <- data_train %>%
+  mutate(
+    Central_m4 = R_moment_4 - 4 * R_moment_3 * R_moment_1 +
+                 6 * R_moment_2 * R_moment_1^2 - 3 * R_moment_1^4,
+    Kurt_Standardized = Central_m4 / (Central_m2^2),
+  ) %>%
+  filter(!is.na(Kurt_Standardized), is.finite(Kurt_Standardized))
+```
+
+```{r}
+# CV on a bunch of different models
+set.seed(123)
+cv_folds <- createFolds(data_train$Kurt_Standardized, k = 5)
+
+cv_error_log <- function(fit_func) {
+  mean(sapply(cv_folds, function(idx) {
+    train <- data_train[-idx, ]
+    test  <- data_train[idx, ]
+    model <- fit_func(train)
+    preds_log <- predict(model, newdata = test)
+    preds_raw <- exp(preds_log)
+    mean((test$Kurt_Standardized - preds_raw)^2, na.rm = TRUE)
+  }))
+}
+
+cv_error_raw <- function(fit_func) {
+  mean(sapply(cv_folds, function(idx) {
+    train <- data_train[-idx, ]
+    test  <- data_train[idx, ]
+    model <- fit_func(train)
+    preds <- predict(model, newdata = test)
+    mean((test$Kurt_Standardized - preds)^2, na.rm = TRUE)
+  }))
+}
+
+linear <- function(d) lm(Kurt_Standardized ~ St + Re + Fr, data = d)
+simple <- function(d) lm(Kurt_Standardized ~ poly(St, 2) + Re * Fr, data = d)
+interact <- function(d) lm(Kurt_Standardized ~ poly(St, 2) * Re + Re * Fr, data = d)
+transform <- function(d) lm(log(Kurt_Standardized) ~ poly(St, 2) * Re + Re * Fr, data = d)
+spline <- function(d) lm(Kurt_Standardized ~ ns(St, df = 4) + Re * Fr, data = d)
+
+cv_error_raw(linear)
+cv_error_raw(simple)
+cv_error_raw(interact)
+cv_error_log(transform)
+cv_error_raw(spline)
+
+
+
+```
+
+```{r}
+# "simple" model from above performed best during CV
+model4 <- lm(Kurt_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
+
+summary(model4)
+plot(model4)
+
+# Residuals vs Fitted & Scale-Location plot look a bit sus, tried adding spline but it didnt help
+```
