@@ -196,6 +196,9 @@ plot(lm_moment3)
 ```
 
 ```{r}
+
+#We standardized skewness to make it dimensionless, comparable across experimental settings, and to stabilize variance
+
 data_train <- data_train %>%
   mutate(
     Central_m2 = R_moment_2 - R_moment_1^2,
@@ -209,7 +212,7 @@ lm_poly2 <- lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
 lm_poly3 <- lm(Skew_Standardized ~ poly(St, 3) + Re * Fr, data = data_train)
 lm_poly4 <- lm(Skew_Standardized ~ poly(St, 4) + Re * Fr, data = data_train)
 
-
+#Difference in rmse between poly 2 and 3 for lm_raw is marginal so we’re sticking with 2 despite anova choosing 3 
 anova(lm_poly1, lm_poly2, lm_poly3, lm_poly4)
 
 
@@ -222,8 +225,8 @@ library(dplyr)
 library(caret)
 library(splines)
 library(ggplot2)
+library(mgcv)
 set.seed(123)
-
 
 # ---- 5-Fold CV ----
 folds <- createFolds(data_train$Skew_Standardized, k = 5)
@@ -238,41 +241,41 @@ cv_error <- function(fit_func) {
   }))
 }
 
-# 
+# Models
+lm_raw <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = d)
 
-
-#1. why did we standardize skew ? 
-#2. why poly of that order? 
-  # run ANOVA
-#3. why a spline of df 4
-  # anova equivalent for splines
-
-lm_raw    <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = d)
 lm_spline <- function(d) lm(Skew_Standardized ~ bs(St, df = 4) + Re * Fr, data = d)
 
-# Run Cv
+gam_auto <- function(d) gam(Skew_Standardized ~ s(St) + Re * Fr, data = d)
+
+#CV
 results <- tibble(
-  Model = c("lm_raw", "lm_spline"),
-  MSE = c(cv_error(lm_raw), cv_error(lm_spline))
+  Model = c("lm_raw", "lm_spline", "gam_auto"),
+  MSE = c(cv_error(lm_raw), cv_error(lm_spline), cv_error(gam_auto))
 )
 
 print(results)
 
-# Best model
+#best
 best_name <- results$Model[which.min(results$MSE)]
 cat("Best model:", best_name, "\n")
 
 best_model <- switch(best_name,
   lm_raw = lm_raw(data_train),
-  lm_spline = lm_spline(data_train)
+  lm_spline = lm_spline(data_train),
+  gam_auto = gam_auto(data_train)
 )
 
 summary(best_model)
 
 # Plots
 par(mfrow = c(2, 2))
-plot(best_model)   # Residuals, Q-Q, leverage, etc.
-
+if (best_name == "gam_auto") {
+  gam.check(best_model)
+  plot(best_model, shade = TRUE)
+} else {
+  plot(best_model)
+}
 
 ```
 
