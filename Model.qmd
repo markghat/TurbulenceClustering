@@ -189,15 +189,12 @@ anova(lm_poly1, lm_poly2, lm_poly3, lm_poly4)
 
 # Difference in RMSE between poly 2 and 3 for lm_raw is marginal, so we’re sticking with 2
 
-<<<<<<< HEAD
 ```
 #FINAL: moment 3 model
 ```{r}
 # MODEL 3: skewness
 
-=======
 # --- Libraries ---
->>>>>>> 3eaea21 (Finalize polynomial, spline, and GAM models with Box-Cox transformation and CV comparison)
 library(dplyr)
 library(caret)
 library(splines)
