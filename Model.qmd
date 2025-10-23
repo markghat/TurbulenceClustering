@@ -7,6 +7,7 @@ editor: visual
 ```{r}
 library(tidyverse)
 library(car)
+library(MASS)
 ```
 
 ```{r}
@@ -46,6 +47,32 @@ plot(adjusted_lm_moment1)
 
 ##TODO: Find which interaction effects are significant
 ```
+```{r}
+glm_log <- glm(R_moment_1 ~ St * Fr + Re,
+               data = data_train,
+               family = Gamma(link = "log"))
+
+glm_inv <- glm(R_moment_1 ~ St * Fr + Re,
+               data = data_train,
+               family = Gamma(link = "inverse"))
+
+glm_id <- glm(R_moment_1 ~ St * Fr + Re,
+              data = data_train,
+              family = Gamma(link = "identity"))
+
+# Compare fits
+AIC(glm_log, glm_inv, glm_id)
+
+```
+AIC lowest for log.
+```{r}
+adjusted_lm_moment1_unlog <- lm(R_moment_1 ~ poly(St, 2) * Re * Fr, data = data_train)
+bc <- boxcox(adjusted_lm_moment1_unlog, lambda = seq(-2, 2, 0.1))
+
+# Identify lambda with the highest log-likelihood
+lambda_opt <- bc$x[which.max(bc$y)]
+lambda_opt
+```
 
 # FINAL: moment 1 model
 ```{r}
@@ -81,6 +108,18 @@ adjusted_lm_moment2 <- lm(log(Var_empirical)~ poly(St,2)+ Re*Fr, data = data_tra
 lm_linear <- lm(log(Var_empirical) ~ St + Re*Fr, data = data_train)
 anova(lm_linear, adjusted_lm_moment2)
 ```
+
+optimal lambda close to 0 so log transformation is most appropriate.
+
+```{r}
+adjusted_lm_moment2_unlog <- lm(Var_empirical ~ poly(St, 2) + Re * Fr, data = data_train)
+bc <- boxcox(adjusted_lm_moment2_unlog, lambda = seq(-2, 2, 0.1))
+
+# Find the optimal lambda (λ) with the highest log-likelihood
+lambda_opt <- bc$x[which.max(bc$y)]
+lambda_opt
+```
+lambda close to 0
 
 #Adjusted LM2 #should I add a spline to improve the Q-Q plot? (only 4 outliers)
 
@@ -164,11 +203,6 @@ mean(rmse)
 plot(lm_moment3)
 ```
 
-```{r}
-
-
-
-```
 
 ```{r}
 # --- Standardize Skewness ---
@@ -361,12 +395,23 @@ cv_error_raw(spline)
 
 ```
 
+
+```{r}
+bc <- boxcox(model4, lambda = seq(-2, 2, 0.1))
+
+# Extract lambda (λ) with the maximum log-likelihood
+lambda_opt <- bc$x[which.max(bc$y)]
+lambda_opt
+```
+lambda close to 0: should have log transformation.
+
 #FINAL: moment 4 model
 ```{r}
 # "simple" model from above performed best during CV
-model4 <- lm(Kurt_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
+model4 <- lm(log(Kurt_Standardized) ~ poly(St, 2) + Re * Fr, data = data_train)
 
 summary(model4)
+par(mfrow = c(2, 2))
 plot(model4)
 
 # Residuals vs Fitted & Scale-Location plot look a bit sus, tried adding spline but it didnt help
