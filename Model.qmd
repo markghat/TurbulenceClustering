@@ -166,84 +166,136 @@ plot(lm_moment3)
 
 ```{r}
 
-#We standardized skewness to make it dimensionless, comparable across experimental settings, and to stabilize variance
 
+
+```
+
+```{r}
+# --- Standardize Skewness ---
 data_train <- data_train %>%
   mutate(
     Central_m2 = R_moment_2 - R_moment_1^2,
     Central_m3 = R_moment_3 - 3 * R_moment_2 * R_moment_1 + 2 * R_moment_1^3,
-    Skew_Standardized = Central_m3 / (Central_m2^(3/2)),
+    Skew_Standardized = Central_m3 / (Central_m2^(3/2))
   ) %>%
   filter(!is.na(Skew_Standardized), is.finite(Skew_Standardized))
 
+# --- Polynomial Comparison ---
 lm_poly1 <- lm(Skew_Standardized ~ St + Re * Fr, data = data_train)
 lm_poly2 <- lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
 lm_poly3 <- lm(Skew_Standardized ~ poly(St, 3) + Re * Fr, data = data_train)
 lm_poly4 <- lm(Skew_Standardized ~ poly(St, 4) + Re * Fr, data = data_train)
-
-#Difference in rmse between poly 2 and 3 for lm_raw is marginal so we’re sticking with 2 despite anova choosing 3 
 anova(lm_poly1, lm_poly2, lm_poly3, lm_poly4)
 
+# Difference in RMSE between poly 2 and 3 for lm_raw is marginal, so we’re sticking with 2
 
+<<<<<<< HEAD
 ```
 #FINAL: moment 3 model
 ```{r}
 # MODEL 3: skewness
 
+=======
+# --- Libraries ---
+>>>>>>> 3eaea21 (Finalize polynomial, spline, and GAM models with Box-Cox transformation and CV comparison)
 library(dplyr)
 library(caret)
 library(splines)
 library(ggplot2)
 library(mgcv)
+library(MASS) # For boxcox()
+
 set.seed(123)
 
-# ---- 5-Fold CV ----
+# --- 5-Fold CV ---
 folds <- createFolds(data_train$Skew_Standardized, k = 5)
 
 cv_error <- function(fit_func) {
   mean(sapply(folds, function(idx) {
     train <- data_train[-idx, ]
-    test  <- data_train[idx, ]
+    test <- data_train[idx, ]
     model <- fit_func(train)
     preds <- predict(model, newdata = test)
     mean((test$Skew_Standardized - preds)^2, na.rm = TRUE)
   }))
 }
 
-# Models
-lm_raw <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = d)
+# --- Model Definitions ---
+lm_raw <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
+lm_spline <- function(d) lm(Skew_Standardized ~ bs(St, df = 4) + Re * Fr, data = data_train)
+gam_auto <- function(d) gam(Skew_Standardized ~ s(St) + Re * Fr, data = data_train)
 
-lm_spline <- function(d) lm(Skew_Standardized ~ bs(St, df = 4) + Re * Fr, data = d)
-
-gam_auto <- function(d) gam(Skew_Standardized ~ s(St) + Re * Fr, data = d)
-
-#CV
+# --- Cross Validation ---
 results <- tibble(
   Model = c("lm_raw", "lm_spline", "gam_auto"),
   MSE = c(cv_error(lm_raw), cv_error(lm_spline), cv_error(gam_auto))
 )
-
 print(results)
 
-#best
+# --- Select Best Model ---
 best_name <- results$Model[which.min(results$MSE)]
 cat("Best model:", best_name, "\n")
 
-best_model <- switch(best_name,
+best_model <- switch(
+  best_name,
   lm_raw = lm_raw(data_train),
   lm_spline = lm_spline(data_train),
   gam_auto = gam_auto(data_train)
 )
-
 summary(best_model)
 
-# Plots
-par(mfrow = c(2, 2))
-if (best_name == "gam_auto") {
-  gam.check(best_model)
-  plot(best_model, shade = TRUE)
+# --- Box–Cox Transformation on Best Model ---
+bc <- boxcox(best_model, lambda = seq(-2, 2, 0.1))
+lambda_opt <- bc$x[which.max(bc$y)]
+cat("Optimal lambda from Box-Cox:", lambda_opt, "\n")
+
+# Transform response if beneficial
+if (abs(lambda_opt) < 0.1) {
+  data_train <- data_train %>%
+    mutate(Skew_Transformed = log(Skew_Standardized - min(Skew_Standardized) + 1))
 } else {
-  plot(best_model)
+  data_train <- data_train %>%
+    mutate(Skew_Transformed = ((Skew_Standardized - min(Skew_Standardized) + 1)^lambda_opt - 1) / lambda_opt)
+}
+
+# --- Refit Models with Transformed Response ---
+lm_raw_bc <- function(d) lm(Skew_Transformed ~ poly(St, 2) + Re * Fr, data = d)
+lm_spline_bc <- function(d) lm(Skew_Transformed ~ bs(St, df = 4) + Re * Fr, data = d)
+gam_auto_bc <- function(d) gam(Skew_Transformed ~ s(St) + Re * Fr, data = d)
+
+# --- CV for Transformed Response ---
+results_bc <- tibble(
+  Model = c("lm_raw_bc", "lm_spline_bc", "gam_auto_bc"),
+  MSE = c(cv_error(lm_raw_bc), cv_error(lm_spline_bc), cv_error(gam_auto_bc))
+)
+print(results_bc)
+
+# --- Compare Before vs After ---
+results_compare <- tibble(
+  Model = results$Model,
+  MSE_Original = results$MSE,
+  MSE_BoxCox = results_bc$MSE
+)
+print(results_compare)
+
+# --- Final Model after Box–Cox ---
+best_name_bc <- results_bc$Model[which.min(results_bc$MSE)]
+cat("Best model after Box–Cox:", best_name_bc, "\n")
+
+best_model_bc <- switch(
+  best_name_bc,
+  lm_raw_bc = lm_raw_bc(data_train),
+  lm_spline_bc = lm_spline_bc(data_train),
+  gam_auto_bc = gam_auto_bc(data_train)
+)
+
+# --- Diagnostics ---
+par(mfrow = c(2, 2))
+if (best_name_bc == "gam_auto_bc") {
+  gam.check(best_model_bc)
+  plot(best_model_bc, shade = TRUE)
+} else {
+  plot(best_model_bc)
 }
 
 ```
