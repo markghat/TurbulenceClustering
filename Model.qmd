@@ -58,66 +58,7 @@ plot(adjusted_lm_moment1)
 
 ##TODO: Find which interaction effects are significant
 ```
-```{r}
-# required packages
-if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
-library(ggplot2)
 
-# make sure Fr and Re are factors (so levels are preserved)
-data_train$Fr <- if (!is.factor(data_train$Fr)) factor(data_train$Fr) else data_train$Fr
-data_train$Re <- if (!is.factor(data_train$Re)) factor(data_train$Re) else data_train$Re
-
-# create grid of predictor values
-st_seq <- seq(min(data_train$St, na.rm = TRUE), max(data_train$St, na.rm = TRUE), length.out = 150)
-fr_levels <- levels(data_train$Fr)
-re_levels <- levels(data_train$Re)
-
-newdata <- expand.grid(
-  St = st_seq,
-  Fr = fr_levels,
-  Re = re_levels,
-  stringsAsFactors = FALSE
-)
-
-# ensure factor levels match training data before predicting
-newdata$Fr <- factor(newdata$Fr, levels = levels(data_train$Fr))
-newdata$Re <- factor(newdata$Re, levels = levels(data_train$Re))
-
-# get predictions on the link scale (log) with se.fit, then convert to response scale
-pred_link <- predict(glm_moment1, newdata = newdata, type = "link", se.fit = TRUE)
-
-# combine into newdata
-newdata$fit_link <- pred_link$fit
-newdata$se_link  <- pred_link$se.fit
-
-# transform to response scale (Gamma with log link → inverse link is exp)
-newdata$pred  <- exp(newdata$fit_link)
-newdata$pred_lwr <- exp(newdata$fit_link - 1.96 * newdata$se_link)
-newdata$pred_upr <- exp(newdata$fit_link + 1.96 * newdata$se_link)
-
-# optional: if you prefer plotting on the log scale, use fit_link and exp transforms accordingly
-
-# Plot: predicted mean vs St, colored by Fr, faceted by Re
-p <- ggplot(newdata, aes(x = St, y = pred, color = Fr, fill = Fr, group = Fr)) +
-  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), alpha = 0.15, color = NA) +
-  geom_line(size = 1.05) +
-  facet_wrap(~ Re, ncol = length(re_levels)) +
-  labs(
-    title = "Predicted mean cluster size vs St (by Fr and Re)",
-    subtitle = "Predictions from glm_moment1 (Gamma family, log link)",
-    x = "Stokes number (St)",
-    y = "Predicted mean cluster size",
-    color = "Froude (Fr)",
-    fill = "Froude (Fr)"
-  ) +
-  theme_minimal(base_size = 14) +
-  theme(legend.position = "bottom")
-
-print(p)
-
-# Save to file if you want:
-ggsave("predicted_mean_by_St_Fr_Re.png", p, width = 10, height = 4 + length(re_levels), dpi = 200)
-```
 ```{r}
 re_levels <- unique(newdata$Re)
 par(mfrow = c(2,2))
