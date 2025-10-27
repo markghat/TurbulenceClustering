@@ -23,15 +23,7 @@ data_train$Fr <- as.factor(data_train$Fr)
 data_train$Re <- as.factor(data_train$Re)
 ```
 
-
-# Plots for Linear Model 1 (First Moment)
-
-```{r}
-par(mfrow = c(2,2))
-plot(lm_moment1)
-```
-
-
+#Moment 1
 
 AIC lowest for log.
 ```{r}
