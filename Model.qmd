@@ -82,6 +82,91 @@ summary(glm_moment1)
 par(mfrow = c(2,2))
 plot(glm_moment1)
 ```
+```{r}
+# required packages
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+library(ggplot2)
+
+# make sure Fr and Re are factors (so levels are preserved)
+data_train$Fr <- if (!is.factor(data_train$Fr)) factor(data_train$Fr) else data_train$Fr
+data_train$Re <- if (!is.factor(data_train$Re)) factor(data_train$Re) else data_train$Re
+
+# create grid of predictor values
+st_seq <- seq(min(data_train$St, na.rm = TRUE), max(data_train$St, na.rm = TRUE), length.out = 150)
+fr_levels <- levels(data_train$Fr)
+re_levels <- levels(data_train$Re)
+
+newdata <- expand.grid(
+  St = st_seq,
+  Fr = fr_levels,
+  Re = re_levels,
+  stringsAsFactors = FALSE
+)
+
+# ensure factor levels match training data before predicting
+newdata$Fr <- factor(newdata$Fr, levels = levels(data_train$Fr))
+newdata$Re <- factor(newdata$Re, levels = levels(data_train$Re))
+
+# get predictions on the link scale (log) with se.fit, then convert to response scale
+pred_link <- predict(glm_moment1, newdata = newdata, type = "link", se.fit = TRUE)
+
+# combine into newdata
+newdata$fit_link <- pred_link$fit
+newdata$se_link  <- pred_link$se.fit
+
+# transform to response scale (Gamma with log link → inverse link is exp)
+newdata$pred  <- exp(newdata$fit_link)
+newdata$pred_lwr <- exp(newdata$fit_link - 1.96 * newdata$se_link)
+newdata$pred_upr <- exp(newdata$fit_link + 1.96 * newdata$se_link)
+
+# optional: if you prefer plotting on the log scale, use fit_link and exp transforms accordingly
+
+# Plot: predicted mean vs St, colored by Fr, faceted by Re
+p <- ggplot(newdata, aes(x = St, y = pred, color = Fr, fill = Fr, group = Fr)) +
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), alpha = 0.15, color = NA) +
+  geom_line(size = 1.05) +
+  facet_wrap(~ Re, ncol = length(re_levels)) +
+  labs(
+    title = "Predicted mean cluster size vs St (by Fr and Re)",
+    subtitle = "Predictions from glm_moment1 (Gamma family, log link)",
+    x = "Stokes number (St)",
+    y = "Predicted mean cluster size",
+    color = "Froude (Fr)",
+    fill = "Froude (Fr)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom")
+
+print(p)
+
+# Save to file if you want:
+ggsave("predicted_mean_by_St_Fr_Re.png", p, width = 10, height = 4 + length(re_levels), dpi = 200)
+```
+```{r}
+re_levels <- unique(newdata$Re)
+par(mfrow = c(2,2))
+
+for (r in re_levels) {
+  sub <- subset(newdata, Re == r)
+
+  p_r <- ggplot(sub, aes(x = St, y = pred, color = Fr, fill = Fr)) +
+    geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), alpha = 0.15, color = NA) +
+    geom_line(size = 1.1) +
+    labs(
+      title = paste("Predicted mean cluster size vs St — Re =", r),
+      x = "Stokes number (St)",
+      y = "Predicted mean cluster size",
+      color = "Froude (Fr)",
+      fill  = "Froude (Fr)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(legend.position = "bottom")
+
+  print(p_r)
+  ggsave(paste0("pred_mean_St_Re", r, ".png"), p_r, width = 6, height = 4, dpi = 200)
+}
+```
+
 
 #Moment 1 CV
 
@@ -158,7 +243,7 @@ library(mgcv)
 
 # Fit a Gamma GAM with log link
 gam_var <- gam(
-  Var_empirical ~ s(St, k = 4) + Re * Fr,
+  Var_empirical ~ s(St) + Re * Fr,
   data = data_train,
   family = Gamma(link = "log")
 )
@@ -183,7 +268,7 @@ for (k in 1:K) {
   test_idx  <- folds == k
   
   fit <- gam(
-    Var_empirical ~ s(St, k = 4) + Re * Fr,
+    Var_empirical ~ s(St) + Re * Fr,
     data = data_train[train_idx, ],
     family = Gamma(link = "log")
   )
@@ -224,111 +309,184 @@ anova(lm_poly1, lm_poly2, lm_poly3, lm_poly4)
 # Difference in RMSE between poly 2 and 3 for lm_raw is marginal, so we’re sticking with 2
 
 ```
-#FINAL: moment 3 model
-```{r}
-# MODEL 3: skewness
 
-# --- Libraries ---
-library(dplyr)
-library(caret)
-library(splines)
-library(ggplot2)
+#FINAL: Model 3 (MARK)
+```{r}
 library(mgcv)
-library(MASS) # For boxcox()
+library(caret)
 
 set.seed(123)
 
-# --- 5-Fold CV ---
-folds <- createFolds(data_train$Skew_Standardized, k = 5)
+# Make sure data_train exists and contains Skew_Standardized, St, Re, Fr
+# create 5 folds (list of indices)
+folds <- createFolds(data_train$Skew_Standardized, k = 5, list = TRUE)
 
-cv_error <- function(fit_func) {
-  mean(sapply(folds, function(idx) {
-    train <- data_train[-idx, ]
-    test <- data_train[idx, ]
-    model <- fit_func(train)
-    preds <- predict(model, newdata = test)
-    mean((test$Skew_Standardized - preds)^2, na.rm = TRUE)
-  }))
-}
+cv_mse_per_fold <- sapply(seq_along(folds), function(i) {
+  test_idx  <- folds[[i]]
+  train_idx <- setdiff(seq_len(nrow(data_train)), test_idx)
 
-# --- Model Definitions ---
-lm_raw <- function(d) lm(Skew_Standardized ~ poly(St, 2) + Re * Fr, data = data_train)
-lm_spline <- function(d) lm(Skew_Standardized ~ bs(St, df = 4) + Re * Fr, data = data_train)
-gam_auto <- function(d) gam(Skew_Standardized ~ s(St) + Re * Fr, data = data_train)
+  train <- data_train[train_idx, , drop = FALSE]
+  test  <- data_train[test_idx,  , drop = FALSE]
 
-# --- Cross Validation ---
-results <- tibble(
-  Model = c("lm_raw", "lm_spline", "gam_auto"),
-  MSE = c(cv_error(lm_raw), cv_error(lm_spline), cv_error(gam_auto))
-)
-print(results)
+  # Fit GAM on the training fold
+  fit <- mgcv::gam(Skew_Standardized ~ s(St) + Re * Fr, data = train, method = "REML")
 
-# --- Select Best Model ---
-best_name <- results$Model[which.min(results$MSE)]
-cat("Best model:", best_name, "\n")
+  # Predict on the test fold
+  preds <- predict(fit, newdata = test, type = "response")
 
-best_model <- switch(
-  best_name,
-  lm_raw = lm_raw(data_train),
-  lm_spline = lm_spline(data_train),
-  gam_auto = gam_auto(data_train)
-)
-summary(best_model)
+  # MSE for this fold (ignore any NA predictions)
+  mean((test$Skew_Standardized - preds)^2, na.rm = TRUE)
+})
 
-# --- Box–Cox Transformation on Best Model ---
-bc <- boxcox(best_model, lambda = seq(-2, 2, 0.1))
-lambda_opt <- bc$x[which.max(bc$y)]
-cat("Optimal lambda from Box-Cox:", lambda_opt, "\n")
+# Report results
+cv_results <- data.frame(Fold = seq_along(cv_mse_per_fold), MSE = cv_mse_per_fold)
+print(cv_results)
+cat("Mean 5-fold CV MSE (gam_auto):", mean(cv_mse_per_fold), "\n")
 
-# Transform response if beneficial
-if (abs(lambda_opt) < 0.1) {
-  data_train <- data_train %>%
-    mutate(Skew_Transformed = log(Skew_Standardized - min(Skew_Standardized) + 1))
-} else {
-  data_train <- data_train %>%
-    mutate(Skew_Transformed = ((Skew_Standardized - min(Skew_Standardized) + 1)^lambda_opt - 1) / lambda_opt)
-}
+# Fit final GAM on the full training set
+gam_auto_gamma <- gam(Skew_Standardized ~ s(St) + Re *Fr,
+                      data = data_train, family = Gamma(link = "log"))
+# Summary and diagnostics
+summary(gam_auto_gamma)
 
-# --- Refit Models with Transformed Response ---
-lm_raw_bc <- function(d) lm(Skew_Transformed ~ poly(St, 2) + Re * Fr, data = d)
-lm_spline_bc <- function(d) lm(Skew_Transformed ~ bs(St, df = 4) + Re * Fr, data = d)
-gam_auto_bc <- function(d) gam(Skew_Transformed ~ s(St) + Re * Fr, data = d)
-
-# --- CV for Transformed Response ---
-results_bc <- tibble(
-  Model = c("lm_raw_bc", "lm_spline_bc", "gam_auto_bc"),
-  MSE = c(cv_error(lm_raw_bc), cv_error(lm_spline_bc), cv_error(gam_auto_bc))
-)
-print(results_bc)
-
-# --- Compare Before vs After ---
-results_compare <- tibble(
-  Model = results$Model,
-  MSE_Original = results$MSE,
-  MSE_BoxCox = results_bc$MSE
-)
-print(results_compare)
-
-# --- Final Model after Box–Cox ---
-best_name_bc <- results_bc$Model[which.min(results_bc$MSE)]
-cat("Best model after Box–Cox:", best_name_bc, "\n")
-
-best_model_bc <- switch(
-  best_name_bc,
-  lm_raw_bc = lm_raw_bc(data_train),
-  lm_spline_bc = lm_spline_bc(data_train),
-  gam_auto_bc = gam_auto_bc(data_train)
-)
-
-# --- Diagnostics ---
+# GAM diagnostic checks and smooth plot(s)
 par(mfrow = c(2, 2))
-if (best_name_bc == "gam_auto_bc") {
-  gam.check(best_model_bc)
-  plot(best_model_bc, shade = TRUE)
+gam.check(gam_auto_gamma)
+par(mfrow = c(1, 1))
+plot(gam_auto_gamma, shade = TRUE, pages = 1)
+```
+```{r}
+library(mgcv)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# TARGETS (from your example)
+target_Re <- c(90, 224, 398)
+target_Fr <- c(0.052, 0.3, Inf)  # Inf interpreted as max(observed Fr)
+
+# Ensure numeric representations for matching
+data_Re_num <- suppressWarnings(as.numeric(as.character(data_train$Re)))
+data_Fr_num <- suppressWarnings(as.numeric(as.character(data_train$Fr)))
+
+# If conversion gives NA, treat Re/Fr as factors
+Re_is_numeric <- !all(is.na(data_Re_num))
+Fr_is_numeric <- !all(is.na(data_Fr_num))
+
+# Get the actual Re values to plot (closest observed values)
+if (Re_is_numeric) {
+  observed_Re <- unique(data_Re_num)
+  chosen_Re <- sapply(target_Re, function(t) {
+    # for targets that are NA (Inf), choose max
+    if (is.infinite(t)) max(observed_Re, na.rm = TRUE) else observed_Re[which.min(abs(observed_Re - t))]
+  })
 } else {
-  plot(best_model_bc)
+  # If Re is factor: pick top 3 most common levels or the ones matching names if numeric-like
+  observed_Re <- levels(as.factor(data_train$Re))
+  # just take up to 3 most frequent levels
+  chosen_Re <- names(sort(table(data_train$Re), decreasing = TRUE))[1:3]
 }
 
+# Get actual Fr values to plot (closest observed values)
+if (Fr_is_numeric) {
+  observed_Fr <- unique(data_Fr_num)
+  chosen_Fr <- sapply(target_Fr, function(t) {
+    if (is.infinite(t)) max(observed_Fr, na.rm = TRUE) else observed_Fr[which.min(abs(observed_Fr - t))]
+  })
+} else {
+  observed_Fr <- levels(as.factor(data_train$Fr))
+  chosen_Fr <- names(sort(table(data_train$Fr), decreasing = TRUE))[1:3]
+}
+
+# Create St grid inside observed range (no extrapolation)
+St_min <- min(data_train$St, na.rm = TRUE)
+St_max <- max(data_train$St, na.rm = TRUE)
+St_grid <- seq(St_min, St_max, length.out = 180)
+
+# Build prediction grid
+pred_grid <- expand.grid(
+  St = St_grid,
+  Re = chosen_Re,
+  Fr = chosen_Fr,
+  stringsAsFactors = FALSE
+) %>% as_tibble()
+
+# Make sure Re/Fr in pred_grid have the same type/levels as in training data
+if (!Re_is_numeric) {
+  pred_grid$Re <- factor(pred_grid$Re, levels = levels(as.factor(data_train$Re)))
+} else {
+  pred_grid$Re <- as.numeric(as.character(pred_grid$Re))
+}
+
+if (!Fr_is_numeric) {
+  pred_grid$Fr <- factor(pred_grid$Fr, levels = levels(as.factor(data_train$Fr)))
+} else {
+  pred_grid$Fr <- as.numeric(as.character(pred_grid$Fr))
+}
+
+# Safety checks
+if (any(is.na(pred_grid$Re))) stop("Re levels in prediction grid do not match training data.")
+if (any(is.na(pred_grid$Fr))) stop("Fr values in prediction grid do not match training data.")
+
+# Predict on link scale and get se.fit
+pred_link <- predict(gam_auto_gamma, newdata = pred_grid, type = "link", se.fit = TRUE)
+pred_grid <- pred_grid %>%
+  mutate(
+    fit_link = pred_link$fit,
+    se_link  = pred_link$se.fit,
+    fit      = exp(fit_link),
+    lower    = exp(fit_link - 2 * se_link),
+    upper    = exp(fit_link + 2 * se_link)
+  )
+
+# Make plotting labels — show numeric rounding for panels
+pred_grid <- pred_grid %>%
+  mutate(
+    Re_label = if (Re_is_numeric) paste0("Re = ", round(as.numeric(Re), 0)) else paste0("Re = ", as.character(Re)),
+    Fr_label = if (Fr_is_numeric) {
+      # pretty label with Inf -> "Inf" if matches max
+      ifelse(as.numeric(Fr) == max(as.numeric(data_train$Fr), na.rm = TRUE), "Fr = Inf", paste0("Fr = ", Fr))
+    } else {
+      paste0("Fr = ", as.character(Fr))
+    }
+  )
+
+# Overlay data points (coerced to plotting labels)
+data_points <- data_train %>%
+  mutate(
+    Re_label = if (Re_is_numeric) paste0("Re = ", round(as.numeric(as.character(Re)), 0)) else paste0("Re = ", as.character(Re)),
+    Fr_label = if (Fr_is_numeric) {
+      ifelse(as.numeric(as.character(Fr)) == max(as.numeric(as.character(data_train$Fr)), na.rm = TRUE),
+             "Fr = Inf", paste0("Fr = ", Fr))
+    } else {
+      paste0("Fr = ", as.character(Fr))
+    }
+  )
+
+# Convert Fr_label to factor and set panel order matching chosen_Fr
+fr_levels <- unique(pred_grid$Fr_label)
+pred_grid$Fr_label <- factor(pred_grid$Fr_label, levels = fr_levels)
+data_points$Fr_label <- factor(data_points$Fr_label, levels = fr_levels)
+
+# Plot: facets by Fr_label, lines colored by Re_label, y on log10 scale
+p <- ggplot(pred_grid, aes(x = St, y = fit, color = Re_label, group = Re_label)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper, fill = Re_label), alpha = 0.12, color = NA, show.legend = FALSE) +
+  geom_line(size = 1) +
+  geom_point(data = data_points, aes(x = St, y = Skew_Standardized), inherit.aes = FALSE,
+             color = "grey40", alpha = 0.45, size = 1.2) +
+  facet_wrap(~ Fr_label, nrow = 1, scales = "fixed") +
+  scale_y_log10() +
+  labs(
+    x = "St (Stokes number)",
+    y = "Predicted Skew (log scale)",
+    color = "Re",
+    title = "Predicted skew vs St — panels by Fr, lines by Re",
+    subtitle = "Model: GAM (Gamma, log link). Shaded = ±2·SE (back-transformed)"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "bottom", plot.title = element_text(face = "bold"))
+
+print(p)
 ```
 
 #Andy
@@ -416,3 +574,7 @@ plot(model4)
 
 # Residuals vs Fitted & Scale-Location plot look a bit sus, tried adding spline but it didnt help
 ```
+```{r}
+plot(gam_model, select = 1, shade = TRUE, main = "Effect of St on Variability (σ)")
+```
+
